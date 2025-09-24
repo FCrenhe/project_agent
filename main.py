@@ -1,20 +1,26 @@
-from typing import Annotated
-
-from typing_extensions import TypedDict
-
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-
 import os
 import json
-
+from typing import Annotated
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
 from langchain_core.messages import ToolMessage
-
 from langchain_core.messages.ai import AIMessageChunk
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.store.memory import InMemoryStore
+
+from dotenv import load_dotenv
 
 
+load_dotenv() 
 
+os.environ["LANGSMITH_TRACING"] = os.getenv("LANGSMITH_TRACING")
+os.environ["LANGSMITH_ENDPOINT"] = os.getenv("LANGSMITH_ENDPOINT")
+os.environ["LANGSMITH_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
+os.environ["LANGSMITH_PROJECT"] = os.getenv("LANGSMITH_PROJECT")
+os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
 
+open_ai_kpi_key = os.getenv("open_ai_api_key")
 
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
@@ -63,7 +69,7 @@ from langchain_openai import ChatOpenAI
 llm = ChatOpenAI(
     # model="qwen-vl-plus",
     model='qwen-plus-2025-09-11',
-    openai_api_key="sk-6cb3e40b7a9b4c2fbc6c3377b8304189",
+    openai_api_key=open_ai_kpi_key,
     openai_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
     temperature=0.2,
     timeout=30,
@@ -110,8 +116,11 @@ graph_builder.add_conditional_edges(
 graph_builder.add_edge("tools", "chatbot")
 
 #graph_builder.add_edge("chatbot", END)
+store = InMemoryStore()
 
-graph = graph_builder.compile()
+checkpointer = InMemorySaver()
+
+graph = graph_builder.compile(store=store)
 
 from IPython.display import Image, display
 import pathlib
@@ -135,7 +144,9 @@ def stream_graph_updates(user_input: str):
     #     print("ToolMessage:", end="", flush=True)  # 打印一次前缀，不换行
     print("ASSISTANT:", end="", flush=True)  # 打印一次前缀，不换行
     
-    for chunk in graph.stream({"messages": [{"role": "user", "content": user_input}]}, stream_mode="messages"):
+    for chunk in graph.stream({"messages": [{"role": "user", "content": user_input}]}, {"configurable": {"thread_id": "1"}},
+                              stream_mode="messages"
+                              ):
 
         #print(chunk)
 
