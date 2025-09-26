@@ -1,69 +1,159 @@
-import unittest
-from unittest.mock import MagicMock, patch
-from uuid import uuid4
-from langchain_core.runnables import RunnableConfig
-from langgraph.graph import MessagesState
-from langgraph.store.base import BaseStore
-from long_memory import call_model
+# from langchain_mcp_adapters.client import MultiServerMCPClient
+# from langgraph.prebuilt import create_react_agent
+
+# client = MultiServerMCPClient(
+#     {
+#         "math": {
+#             "command": "python",
+#             # Replace with absolute path to your math_server.py file
+#             "args": ["D:\MIT\code\agent\agent_project\rh_mcp_server.py"],
+#             "transport": "stdio",
+#         }
+#         # "weather": {
+#         #     # Ensure you start your weather server on port 8000
+#         #     "url": "http://localhost:8000/mcp",
+#         #     "transport": "streamable_http",
+#         # }
+#     }
+# )
+
+# from dotenv import load_dotenv
+# import os
+# import asyncio
+# load_dotenv() 
+
+# os.environ["LANGSMITH_TRACING"] = os.getenv("LANGSMITH_TRACING")
+# os.environ["LANGSMITH_ENDPOINT"] = os.getenv("LANGSMITH_ENDPOINT")
+# os.environ["LANGSMITH_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
+# os.environ["LANGSMITH_PROJECT"] = os.getenv("LANGSMITH_PROJECT")
+# os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
+
+# open_ai_kpi_key = os.getenv("open_ai_api_key")
+# from langchain_openai import ChatOpenAI
+# llm = ChatOpenAI(
+#     # model="qwen-vl-plus",
+#     model='qwen-plus-2025-09-11',
+#     openai_api_key=open_ai_kpi_key,
+#     openai_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
+#     temperature=0.2,
+#     timeout=30,
+# )
+
+# async def main():
+#     tools = await client.get_tools()
+
+#     agent = llm.bind_tools(tools)
+
+#     agent = create_react_agent(
+#         "anthropic:claude-3-7-sonnet-latest",
+#         tools
+#     )
+#     math_response = await agent.ainvoke(
+#         {"messages": [{"role": "user", "content": "what's (3 + 5) x 12?"}]}
+#     )
+#     weather_response = await agent.ainvoke(
+#         {"messages": [{"role": "user", "content": "what is the weather in nyc?"}]}
+#     )
+
+# asyncio.run(main())
 
 
-class TestCallModel(unittest.TestCase):
-    """
-    Unit tests for the `call_model` function in long_memory.py.
-    """
-
-    def setUp(self):
-        """
-        Setup mock objects and test data.
-        """
-        self.mock_store = MagicMock(spec=BaseStore)
-        self.mock_state = MagicMock(spec=MessagesState)
-        self.mock_config = {"configurable": {"user_id": "1"}}
-        self.mock_message = MagicMock()
-        self.mock_message.content = "Test message"
-        self.mock_state.messages = [self.mock_message]
-
-    def test_call_model_without_remember(self):
-        """
-        Test `call_model` when the user does not ask to remember anything.
-        """
-        self.mock_store.search.return_value = []
-        result = call_model(self.mock_state, self.mock_config, store=self.mock_store)
-        self.assertIn("messages", result)
-        self.mock_store.search.assert_called_once()
-        self.mock_store.put.assert_not_called()
-
-    def test_call_model_with_remember(self):
-        """
-        Test `call_model` when the user asks to remember something.
-        """
-        self.mock_message.content = "Remember: my name is Bob"
-        self.mock_store.search.return_value = []
-        result = call_model(self.mock_state, self.mock_config, store=self.mock_store)
-        self.assertIn("messages", result)
-        self.mock_store.search.assert_called_once()
-        self.mock_store.put.assert_called_once()
-
-    def test_call_model_with_existing_memories(self):
-        """
-        Test `call_model` when the user has existing memories.
-        """
-        mock_memory = MagicMock()
-        mock_memory.value = {"data": "User name is Bob"}
-        self.mock_store.search.return_value = [mock_memory]
-        result = call_model(self.mock_state, self.mock_config, store=self.mock_store)
-        self.assertIn("messages", result)
-        self.mock_store.search.assert_called_once()
-        self.mock_store.put.assert_not_called()
-
-    def test_call_model_with_empty_messages(self):
-        """
-        Test `call_model` when the messages list is empty.
-        """
-        self.mock_state.messages = []
-        with self.assertRaises(IndexError):
-            call_model(self.mock_state, self.mock_config, store=self.mock_store)
 
 
-if __name__ == "__main__":
-    unittest.main()
+
+############################
+
+
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain.chat_models import init_chat_model
+from langgraph.graph import StateGraph, MessagesState, START, END
+from langgraph.prebuilt import ToolNode
+
+
+from dotenv import load_dotenv
+import os
+import asyncio
+load_dotenv() 
+
+os.environ["LANGSMITH_TRACING"] = os.getenv("LANGSMITH_TRACING")
+os.environ["LANGSMITH_ENDPOINT"] = os.getenv("LANGSMITH_ENDPOINT")
+os.environ["LANGSMITH_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
+os.environ["LANGSMITH_PROJECT"] = os.getenv("LANGSMITH_PROJECT")
+os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
+
+open_ai_kpi_key = os.getenv("open_ai_api_key")
+from langchain_openai import ChatOpenAI
+model = ChatOpenAI(
+    # model="qwen-vl-plus",
+    model='qwen-plus-2025-09-11',
+    openai_api_key=open_ai_kpi_key,
+    openai_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    temperature=0.2,
+    timeout=30,
+)
+
+# Initialize the model
+#model = init_chat_model("anthropic:claude-3-5-sonnet-latest")
+
+# Set up MCP client
+client = MultiServerMCPClient(
+    {
+        "math": {
+            "command": "python",
+            # Make sure to update to the full absolute path to your math_server.py file
+            "args": ["rh_mcp_server.py"],
+            "transport": "stdio",
+        }
+
+    }
+)
+
+async def main():
+
+    tools = await client.get_tools()
+    # print("tools:", tools)
+    # print("type_tools:", type(tools))
+    
+    for i in range(len(tools)):
+        print(f"tools{i}:----------", tools[i])
+    model_with_tools = model.bind_tools(tools)
+
+    tool_node = ToolNode(tools)
+    
+    def should_continue(state: MessagesState):
+        messages = state["messages"]
+        last_message = messages[-1]
+        if last_message.tool_calls:
+            return "tools"
+        return END
+
+# Define call_model function
+    async def call_model(state: MessagesState):
+        messages = state["messages"]
+        response = await model_with_tools.ainvoke(messages)
+        return {"messages": [response]}
+    
+    
+    # Build the graph
+    builder = StateGraph(MessagesState)
+    builder.add_node("call_model", call_model)
+    builder.add_node("tools", tool_node)
+
+    builder.add_edge(START, "call_model")
+    builder.add_conditional_edges(
+        "call_model",
+        should_continue,
+    )
+    builder.add_edge("tools", "call_model")
+
+    # Compile the graph
+    graph = builder.compile()
+
+    math_response = await graph.ainvoke(
+        {"messages": [{"role": "user", "content": "what's (3 + 5) x 12?"}]}
+    )
+    
+    print("math_response:", math_response)
+
+asyncio.run(main())
