@@ -8,7 +8,9 @@ from langchain_core.messages import ToolMessage
 from langchain_core.messages.ai import AIMessageChunk
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
-
+from langgraph.store.postgres import PostgresStore
+from langchain_core.runnables import RunnableConfig
+import uuid
 from dotenv import load_dotenv
 
 
@@ -21,6 +23,7 @@ os.environ["LANGSMITH_PROJECT"] = os.getenv("LANGSMITH_PROJECT")
 os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
 
 open_ai_kpi_key = os.getenv("open_ai_api_key")
+DB_URI =os.getenv("DB_URI")
 
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
@@ -56,6 +59,25 @@ class BasicToolNode:
     
 from langchain_tavily import TavilySearch
 from custom_tools import multiply, speak, weather
+from langchain_mcp_adapters.client import MultiServerMCPClient
+client = MultiServerMCPClient(
+    {
+        "math": {
+            "command": "python",
+            # Replace with absolute path to your math_server.py file
+            "args": ["D:\MIT\code\agent\agent_project\rh_mcp_server.py"],
+            "transport": "stdio",
+        },
+        "weather": {
+            # Ensure you start your weather server on port 8000
+            "url": "http://localhost:8000/mcp",
+            "transport": "streamable_http",
+        }
+    }
+)
+import asyncio
+
+tools = await client.get_tools()
 
 search_tool = TavilySearch(max_results=2)
 multiply_tool = multiply 
@@ -74,6 +96,7 @@ llm = ChatOpenAI(
     temperature=0.2,
     timeout=30,
 )
+
 llm_with_tools = llm.bind_tools(tools)
 def chatbot(state: State):
     return {"messages": [llm_with_tools.invoke(state["messages"])]}
@@ -135,32 +158,18 @@ except Exception:
     # This requires some extra dependencies and is optional
     pass
 
-def stream_graph_updates(user_input: str):
-    out = "ASSISTANT:"
-    
-    # if isinstance(chunk[0], AIMessageChunk):
-    #     print("AIMessageChunk:", end="", flush=True)  # 打印一次前缀，不换行
-    # elif isinstance(chunk[0], ToolMessage):
-    #     print("ToolMessage:", end="", flush=True)  # 打印一次前缀，不换行
+def stream_graph_updates(input_messages: list,
+                         config: RunnableConfig):  
     print("ASSISTANT:", end="", flush=True)  # 打印一次前缀，不换行
-    
-    for chunk in graph.stream({"messages": [{"role": "user", "content": user_input}]}, {"configurable": {"thread_id": "1"}},
+    for chunk in graph.stream({"messages": input_messages}, 
+                              config,
                               stream_mode="messages"
                               ):
-
-        #print(chunk)
-
         if isinstance(chunk[0], AIMessageChunk):
             print(chunk[0].content, end="", flush=True)
         elif isinstance(chunk[0], ToolMessage):
-            #print(chunk[0].content, end="", flush=True)
             print(f"\nTOOL: {json.loads(chunk[0].content)}", flush=True)
-            
             print("ASSISTANT:", end="", flush=True)  # 工具后继续追加模型内容
-
-           # continue  # 跳过工具消息
-           # print(chunk)
-           # print("工具信息:", chunk[0].content, end="", flush=True)
     print()
        
 
@@ -169,7 +178,35 @@ while True:
     if user_input.lower() in ["quit", "exit", "q"]:
         print("Goodbye!")
         break
-    stream_graph_updates(user_input)
+    
+    with (
+        PostgresStore.from_conn_string(DB_URI) as store,
+   # PostgresSaver.from_conn_string(DB_URI) as checkpointer,
+        ):
+        config = {
+            "configurable": {
+                "thread_id": "2",
+                "user_id": "1",
+            }
+        }
+        
+        if "remember" in user_input.lower():
+            memory = "用户名字叫神人和"
+            store.put(namespace, str(uuid.uuid4()), {"data": memory})
+            
+        user_id = config["configurable"]["user_id"]
+        namespace = ("memories", user_id)
+        memories = store.search(namespace, query=str(user_input))
+        info = "\n".join([d.value["data"] for d in memories])
+        system_msg = f"You are a helpful assistant talking to the user. User info: {info}"
+       # last_message = user_input["messages"][-1]
+
+
+        input_messages = [{"role": "system", "content": system_msg}] + [{"role": "user", "content": user_input}]
+        
+        stream_graph_updates(input_messages, config)
+        
+        
     # try:
     #     user_input = input("User: ")
     #     if user_input.lower() in ["quit", "exit", "q"]:
