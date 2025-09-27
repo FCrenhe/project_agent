@@ -59,25 +59,8 @@ class BasicToolNode:
     
 from langchain_tavily import TavilySearch
 from custom_tools import multiply, speak, weather
-from langchain_mcp_adapters.client import MultiServerMCPClient
-client = MultiServerMCPClient(
-    {
-        "math": {
-            "command": "python",
-            # Replace with absolute path to your math_server.py file
-            "args": ["D:\MIT\code\agent\agent_project\rh_mcp_server.py"],
-            "transport": "stdio",
-        },
-        "weather": {
-            # Ensure you start your weather server on port 8000
-            "url": "http://localhost:8000/mcp",
-            "transport": "streamable_http",
-        }
-    }
-)
-import asyncio
 
-tools = await client.get_tools()
+
 
 search_tool = TavilySearch(max_results=2)
 multiply_tool = multiply 
