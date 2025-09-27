@@ -10,6 +10,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from langgraph.store.postgres import PostgresStore
 from langchain_core.runnables import RunnableConfig
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langgraph.prebuilt import ToolNode
 
 import asyncio
 import uuid
@@ -62,14 +64,28 @@ class BasicToolNode:
 from langchain_tavily import TavilySearch
 from custom_tools import multiply, speak, weather
 
+client = MultiServerMCPClient(
+    {
+        "math": {
+            "command": "python",
+            # Make sure to update to the full absolute path to your math_server.py file
+            "args": ["rh_mcp_server.py"],
+            "transport": "stdio",
+        }
 
+    }
+)
+
+
+    
+tools_mcp = asyncio.run(client.get_tools())
  
 
 search_tool = TavilySearch(max_results=2)
 multiply_tool = multiply 
 speak_tool = speak
 weather_tool = weather
-tools = [search_tool, multiply_tool, speak_tool, weather_tool] 
+tools = [search_tool, multiply_tool, speak_tool, weather_tool] + tools_mcp
 graph_builder = StateGraph(State)
 import os
 #from langchain.chat_models import init_chat_model
@@ -85,6 +101,12 @@ llm = ChatOpenAI(
 
 llm_with_tools = llm.bind_tools(tools)
 def chatbot(state: State):
+    
+    # messages = state["messages"]
+    # response = await llm_with_tools.ainvoke(messages)
+    # return {"messages": [response]}
+
+
     return {"messages": [llm_with_tools.invoke(state["messages"])]}
 def route_tools(
     state: State,
@@ -105,7 +127,7 @@ def route_tools(
 # The first argument is the unique node name
 # The second argument is the function or object that will be called whenever
 # the node is used.
-tool_node = BasicToolNode(tools=tools)
+tool_node = ToolNode(tools=tools)
 
 graph_builder.add_node("chatbot", chatbot)
 graph_builder.add_node("tools", tool_node)
@@ -144,55 +166,55 @@ except Exception:
     # This requires some extra dependencies and is optional
     pass
 
-def stream_graph_updates(input_messages: list,
+async def stream_graph_updates(input_messages: list,
                          config: RunnableConfig):  
-    print("ASSISTANT:", end="", flush=True)  # 打印一次前缀，不换行
-    for chunk in graph.stream({"messages": input_messages}, 
-                              config,
-                              stream_mode="messages"
-                              ):
+    print("ASSISTANT:", end="", flush=True)  
+
+    async for chunk in graph.astream({"messages": input_messages}, 
+                                      config, 
+                                      stream_mode="messages"):
         if isinstance(chunk[0], AIMessageChunk):
             print(chunk[0].content, end="", flush=True)
         elif isinstance(chunk[0], ToolMessage):
             print(f"\nTOOL: {json.loads(chunk[0].content)}", flush=True)
             print("ASSISTANT:", end="", flush=True)  # 工具后继续追加模型内容
     print()
+
        
 
+async def main():
 
-
-
-while True:
-    user_input = input("User: ")
-    if user_input.lower() in ["quit", "exit", "q"]:
-        print("Goodbye!")
-        break
-    
-    with (
-        PostgresStore.from_conn_string(DB_URI) as store,
-   # PostgresSaver.from_conn_string(DB_URI) as checkpointer,
-        ):
-        config = {
-            "configurable": {
-                "thread_id": "2",
-                "user_id": "1",
+    while True:
+        user_input = input("User: ")
+        if user_input.lower() in ["quit", "exit", "q"]:
+            print("Goodbye!")
+            break
+        
+        with (
+            PostgresStore.from_conn_string(DB_URI) as store,
+    # PostgresSaver.from_conn_string(DB_URI) as checkpointer,
+            ):
+            config = {
+                "configurable": {
+                    "thread_id": "2",
+                    "user_id": "1",
+                }
             }
-        }
-        
-        if "remember" in user_input.lower():
-            memory = "用户名字叫神人和"
-            store.put(namespace, str(uuid.uuid4()), {"data": memory})
             
-        user_id = config["configurable"]["user_id"]
-        namespace = ("memories", user_id)
-        memories = store.search(namespace, query=str(user_input))
-        info = "\n".join([d.value["data"] for d in memories])
-        system_msg = f"You are a helpful assistant talking to the user. User info: {info}"
-       # last_message = user_input["messages"][-1]
+            if "remember" in user_input.lower():
+                memory = "用户名字叫神人和"
+                store.put(namespace, str(uuid.uuid4()), {"data": memory})
+                
+            user_id = config["configurable"]["user_id"]
+            namespace = ("memories", user_id)
+            memories = store.search(namespace, query=str(user_input))
+            info = "\n".join([d.value["data"] for d in memories])
+            system_msg = f"You are a helpful assistant talking to the user. User info: {info}"
+        # last_message = user_input["messages"][-1]
 
 
-        input_messages = [{"role": "system", "content": system_msg}] + [{"role": "user", "content": user_input}]
+            input_messages = [{"role": "system", "content": system_msg}] + [{"role": "user", "content": user_input}]
+            
+            await stream_graph_updates(input_messages, config)
         
-        stream_graph_updates(input_messages, config)
-        
-        
+asyncio.run(main())
