@@ -16,8 +16,6 @@ from langgraph.prebuilt import ToolNode
 import asyncio
 import uuid
 from dotenv import load_dotenv
-
-
 load_dotenv() 
 
 os.environ["LANGSMITH_TRACING"] = os.getenv("LANGSMITH_TRACING")
